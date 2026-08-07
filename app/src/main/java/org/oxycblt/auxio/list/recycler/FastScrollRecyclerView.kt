@@ -276,7 +276,37 @@ constructor(context: Context, attrs: AttributeSet? = null, @AttrRes defStyleAttr
         }
 
     var popupProvider: PopupProvider? = null
+        set(value) {
+            field = value
+            invalidatePopupData()
+        }
+
     var listener: Listener? = null
+
+    // onPreDraw runs from an ItemDecoration, so it fires on every draw pass of the list --
+    // scrolling or not. Deriving the popup text is not free (it re-reads the current sort out of
+    // SharedPreferences, and depending on the sort allocates a Calendar or an ICU MeasureFormat),
+    // so memoize it against the item it was derived from. The text only changes when the item
+    // under the thumb does.
+    private var popupDataPos = NO_POSITION
+    private var popupDataText: String? = null
+
+    private val popupDataObserver =
+        object : AdapterDataObserver() {
+            override fun onChanged() = invalidatePopupData()
+
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int) =
+                invalidatePopupData()
+
+            override fun onItemRangeInserted(positionStart: Int, itemCount: Int) =
+                invalidatePopupData()
+
+            override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) =
+                invalidatePopupData()
+
+            override fun onItemRangeMoved(fromPosition: Int, toPosition: Int, itemCount: Int) =
+                invalidatePopupData()
+        }
 
     init {
         overlay.add(thumbView)
@@ -347,17 +377,15 @@ constructor(context: Context, attrs: AttributeSet? = null, @AttrRes defStyleAttr
 
         val provider = popupProvider
         val hasPopupProvider = firstAdapterPos != NO_POSITION && provider != null
-        val popupData =
-            if (hasPopupProvider) {
-                provider.getPopupData(firstAdapterPos)
-            } else {
-                null
-            }
         val popupText: String
         if (hasPopupProvider) {
             popupView.isInvisible = false
-            // Get the popup text. If there is none, we default to "?".
-            popupText = popupData?.text ?: "?"
+            if (firstAdapterPos != popupDataPos) {
+                popupDataPos = firstAdapterPos
+                // Get the popup text. If there is none, we default to "?".
+                popupDataText = provider.getPopupData(firstAdapterPos)?.text ?: "?"
+            }
+            popupText = popupDataText ?: "?"
         } else {
             // No valid position or provider, do not show the popup.
             popupView.isInvisible = true
@@ -418,6 +446,23 @@ constructor(context: Context, attrs: AttributeSet? = null, @AttrRes defStyleAttr
                 )
 
         popupView.layout(popupLeft, popupTop, popupLeft + popupWidth, popupTop + popupHeight)
+    }
+
+    override fun setAdapter(adapter: Adapter<*>?) {
+        this.adapter?.unregisterAdapterDataObserver(popupDataObserver)
+        super.setAdapter(adapter)
+        adapter?.registerAdapterDataObserver(popupDataObserver)
+        invalidatePopupData()
+    }
+
+    /**
+     * Drop the memoized popup text so that it is re-derived on the next draw. Must be called
+     * whenever the item at a given position may have changed, since the memo is keyed on position
+     * alone.
+     */
+    private fun invalidatePopupData() {
+        popupDataPos = NO_POSITION
+        popupDataText = null
     }
 
     override fun onScrolled(dx: Int, dy: Int) {
