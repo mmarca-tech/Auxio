@@ -601,11 +601,15 @@ class ExoPlaybackStateHolder(
         if (timeline.isEmpty) {
             return emptyList()
         }
-        val queue = mutableListOf<Int>()
+        // Deque rather than a list since we prepend as often as we append, and prepending to an
+        // ArrayList shifts the entire backing array every time. That made this walk quadratic in
+        // the position of the current song, which is enough to freeze the UI outright on a
+        // library-sized queue.
+        val queue = ArrayDeque<Int>()
 
         // Add the active queue item.
         val currentMediaItemIndex = currentMediaItemIndex
-        queue.add(currentMediaItemIndex)
+        queue.addLast(currentMediaItemIndex)
 
         // Fill queue alternating with next and/or previous queue items.
         var firstMediaItemIndex = currentMediaItemIndex
@@ -622,7 +626,7 @@ class ExoPlaybackStateHolder(
                         shuffleModeEnabled,
                     )
                 if (lastMediaItemIndex != C.INDEX_UNSET) {
-                    queue.add(lastMediaItemIndex)
+                    queue.addLast(lastMediaItemIndex)
                 }
             }
             if (firstMediaItemIndex != C.INDEX_UNSET) {
@@ -633,7 +637,7 @@ class ExoPlaybackStateHolder(
                         shuffleModeEnabled,
                     )
                 if (firstMediaItemIndex != C.INDEX_UNSET) {
-                    queue.add(0, firstMediaItemIndex)
+                    queue.addFirst(firstMediaItemIndex)
                 }
             }
         }
