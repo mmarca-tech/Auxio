@@ -40,6 +40,18 @@ class DBCache private constructor(private val readDao: CacheReadDao) : Cache {
     private var mapping: Map<Uri, CachedFileData>? = null
     private val mappingLock = Mutex()
 
+    /**
+     * Drop the in-memory copy of the cache table.
+     *
+     * [read] memoizes the entire table so that a load doesn't issue a query per file, but that copy
+     * holds every tag of every song and is only useful while a load is in progress. Holding it for
+     * the lifetime of the process is a second, complete copy of the library's metadata sitting
+     * alongside the library itself, which is enough to exhaust the heap on large libraries.
+     */
+    suspend fun release() {
+        mappingLock.withLock { mapping = null }
+    }
+
     override suspend fun read(file: File): CacheResult {
         val currentMapping =
             mappingLock.withLock {
@@ -154,6 +166,8 @@ private constructor(private val inner: DBCache, private val writeDao: CacheWrite
 
     override suspend fun cleanup(excluding: List<CachedFile>) {
         writeDao.deleteExcludingUris(excluding.mapTo(mutableSetOf()) { it.file.uri.toString() })
+        // Cleanup terminates a load, so the read mapping is dead weight from here on.
+        inner.release()
     }
 
     companion object {
